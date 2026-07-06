@@ -16,6 +16,12 @@ private:
     ostringstream out;      // código generado
     int indent_level = 0;   // nivel de indentación actual
 
+    //Helpers para herencia y polimorfismo
+    string current_type_name;
+    string current_type_parent;
+    string current_method_name;
+
+
     string indent() const {
         return string(indent_level * 4, ' ');
     }
@@ -477,6 +483,16 @@ public:
                 emit(")");
                 return;
             }
+            if (name == "base") {
+                // emitir como ParentType::method(this, args)
+                emit(current_type_parent + "::" + current_method_name + "(");
+                for (size_t i = 0; i < node.args.size(); ++i) {
+                    if (i > 0) emit(", ");
+                    node.args[i]->accept(*this);
+                }
+                emit(")");
+                return;
+            }
 
             // Caso 2 y 3: constructor vs función
             bool is_constructor = (node.inferred_type == name);
@@ -565,6 +581,9 @@ public:
     }
 
     void visit(TypeNode& node) override {
+        current_type_name   = node.name;
+        current_type_parent = node.parent;
+
         // ── Declaración de clase ──
         emit("struct " + node.name);
 
@@ -636,6 +655,7 @@ public:
         // ── Métodos ──
         for (const auto& method : node.methods) {
             if (auto* fn = dynamic_cast<FunctionNode*>(method.get())) {
+                current_method_name = fn->name;
                 string return_type;
                 if (!fn->return_type.empty()) {
                     return_type = toCppType(fn->return_type);
@@ -672,6 +692,10 @@ public:
         indent_level--;
         emitLine("};");
         emit("\n");
+
+        current_method_name = "";
+        current_type_name = "";
+        current_type_parent = "";
     }
 
     void visit(VectorNode& node) override {
