@@ -178,12 +178,12 @@ public:
 
     private:
         const string digits = "0|1|2|3|4|5|6|7|8|9";
-        const string symbols = R"( |!|#|$|%|&|\||'|\\"|\(|\)|+|-|\*|^|/|\\|.|,|:|;|<|=|>|?|@|[|]|{|}|_|\n|\t|\f|\r|\v)";
+        const string symbols = R"( |!|#|$|%|&|\||'|\\"|\(|\)|+|-|\*|^|/|.|,|:|;|<|=|>|?|@|[|]|{|}|_|\n|\t|\f|\r|\v)";
         const string uppers = "A|B|C|D|E|F|G|H|I|J|K|L|M|N|O|P|Q|R|S|T|U|V|W|X|Y|Z";
         const string lowers = "a|b|c|d|e|f|g|h|i|j|k|l|m|n|o|p|q|r|s|t|u|v|w|x|y|z";
 
         const string SPACE = "(\n|\t|\f|\r|\v| )(\n|\t|\f|\r|\v| )*";
         const string identifier = "(" + uppers + "|" + lowers + ")("+ uppers + "|" + lowers + "|" + digits + "|" + "_)*";
-        const string integer  = "(" + digits + ")(" + digits + ")*"; //Numeros sin coma
+        const string integer  = "(" + digits + ")((.(" + digits + "))|(" + digits + ")*)(" + digits + ")*";
         const string str = "\"(" + uppers + "|" + lowers + "|" + digits + "|" + symbols + ")*\"";
 };
