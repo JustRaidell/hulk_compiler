@@ -225,8 +225,10 @@ private:
 
         // recoger métodos del tipo incluyendo heredados
         unordered_map<string, vector<string>> type_methods;
+        unordered_set<string> visited;
         string current = type_name;
-        while (!current.empty()) {
+        while (!current.empty() && !visited.count(current)) {
+            visited.insert(current);
             TypeInfo* info = table.lookupType(current);
             if (!info) break;
             for (const auto& [method_name, param_types, return_type] : info->methods)
@@ -305,7 +307,7 @@ private:
         // construye la cadena de ancestros de 'a'
         unordered_set<string> ancestors_a;
         string current = a;
-        while (!current.empty()) {
+        while (!current.empty() && !ancestors_a.count(current)) {
             ancestors_a.insert(current);
             auto* info = table.lookupType(current);
             if (!info || info->parent.empty()) break;
@@ -314,9 +316,11 @@ private:
         ancestors_a.insert("Object");
 
         // sube por la cadena de 'b' hasta encontrar uno en ancestors_a
+        unordered_set<string> visited_b;
         current = b;
-        while (!current.empty()) {
+        while (!current.empty() && !visited_b.count(current)) {
             if (ancestors_a.count(current)) return current;
+            visited_b.insert(current);
             auto* info = table.lookupType(current);
             if (!info || info->parent.empty()) break;
             current = info->parent;
@@ -328,9 +332,11 @@ private:
     // Recoge todos los nombres de métodos de un protocolo y sus ancestros
     unordered_set<string> collectProtocolMethods(const string& protocol_name) {
         unordered_set<string> methods;
+        unordered_set<string> visited;
         string current = protocol_name;
 
-        while (!current.empty()) {
+        while (!current.empty() && !visited.count(current)) {
+            visited.insert(current);
             TypeInfo* info = table.lookupType(current);
             if (!info) break;
 
@@ -838,8 +844,8 @@ public:
                 string current = node.parent;
                 while (!current.empty()) {
                     if (current == node.name) {
-                        error("Herencia circular detectada: '" + node.name + "' hereda de sí mismo");
-                        break;
+                        error("Herencia circular detectada: '" + node.name + "' hereda de si mismo");
+                        return;
                     }
                     TypeInfo* info = table.lookupType(current);
                     if (!info) break;
