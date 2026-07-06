@@ -89,7 +89,7 @@ public:
     // ── Builtins ──
     void registerBuiltins() {
         types["Iterable"] = {"Iterable", "", {}, {{"next", {}, "Boolean"}, {"current", {}, "Object"}}, {}, true};
-        types["Vector"]   = {"Vector", "Iterable", {}, {{"size", {}, "Number"}}, {}, true};
+        types["HulkVector"]   = {"HulkVector", "Iterable", {}, {{"size", {}, "Number"}}, {}, true};
 
         // funciones built-in de HULK
         functions["print"]  = {"print",  {{"value", "Object"}}, "Object", false};
@@ -116,6 +116,10 @@ private:
     SymbolTable table;
     string last_type;  // tipo de la última expresión visitada
     vector<string> errors;
+
+    //helpers para herencia.
+    string current_method_name;
+    string current_type_name;
 
     void error(const string& msg) {
         errors.push_back(msg);
@@ -180,6 +184,8 @@ private:
 
     //Helpers para actualizar y verificar la tabla de tipos
     void analyzeMethod(FunctionNode* fn, const string& type_name) {
+        current_method_name = fn->name;
+        current_type_name   = type_name;
         table.pushScope();
         for (const auto& [pname, ptype] : fn->params)
             table.declareVariable(pname, ptype);
@@ -202,6 +208,9 @@ private:
     }
 
     void verifyMethod(FunctionNode* fn, const string& type_name) {
+        current_method_name = fn->name;
+        current_type_name   = type_name;
+
         table.pushScope();
         for (const auto& [pname, ptype] : fn->params)
             table.declareVariable(pname, ptype);
@@ -253,7 +262,7 @@ private:
 
         // T[] es compatible con Vector y con Iterable
         if (actual.size() >= 2 && actual.substr(actual.size() - 2) == "[]") {
-            if (expected == "Vector" || expected == "Iterable") return true;
+            if (expected == "HulkVector" || expected == "Iterable") return true;
             // T[] también es compatible con T*
             string actual_base   = actual.substr(0, actual.size() - 2);
             if (expected.size() > 1 && expected.back() == '*') {
@@ -627,6 +636,46 @@ public:
         if (auto* id = dynamic_cast<IdentifierNode*>(node.callee.get())) {
             string callee_name = id->name;
 
+            //Verificar si es una llamada a un método del padre.
+            if (callee_name == "base") {
+                VariableInfo* self_var = table.lookupVariable("self");
+                if (!self_var) {
+                    error("'base' solo puede usarse dentro de un método");
+                    last_type = ""; return;
+                }
+
+                TypeInfo* type_info = table.lookupType(self_var->type);
+                if (!type_info || type_info->parent.empty()) {
+                    error("El tipo '" + self_var->type + "' no tiene padre");
+                    last_type = ""; return;
+                }
+
+                TypeInfo* parent_info = table.lookupType(type_info->parent);
+                if (!parent_info) {
+                    error("Tipo padre '" + type_info->parent + "' no encontrado");
+                    last_type = ""; return;
+                }
+
+                // buscar el método del mismo nombre en el padre
+                vector<string> arg_types;
+                for (auto& arg : node.args)
+                    arg_types.push_back(infer(*arg));
+
+                for (const auto& [mname, param_types, return_type] : parent_info->methods) {
+                    if (mname == current_method_name) {  // <- mismo nombre que el método actual
+                        last_type = return_type;
+                        return;
+                    }
+                }
+
+                error("Método '" + current_method_name + "' no encontrado en padre '" +
+                      type_info->parent + "'");
+                last_type = "";
+                return;
+            }
+
+
+
             FunctionInfo* fn = table.lookupFunction(callee_name);
             TypeInfo* tn     = table.lookupType(callee_name);
 
@@ -673,7 +722,7 @@ public:
             // resolver tipo base
             string base_type = object_type;
             if (object_type.size() > 2 && object_type.substr(object_type.size() - 2) == "[]") {
-                base_type = "Vector";   // T[] — buscar métodos en Vector
+                base_type = "HulkVector";   // T[] — buscar métodos en Vector
             } else if (object_type.size() > 1 && object_type.back() == '*') {
                 base_type = "Iterable"; // T* — buscar métodos en Iterable
             }
@@ -1019,7 +1068,7 @@ public:
         // resolver el tipo base
         string base_type = object_type;
         if (object_type.size() > 2 && object_type.substr(object_type.size() - 2) == "[]") {
-            base_type = "Vector";
+            base_type = "HulkVector";
         } else if (object_type.size() > 1 && object_type.back() == '*') {
             base_type = "Iterable";
         }
