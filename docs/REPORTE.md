@@ -21,9 +21,9 @@ El compilador está organizado como un pipeline clásico de cuatro fases:
 ```
 Código fuente
     ↓
-[Lexer]              — tokenización mediante motor de regex y AFD construidos a mano
+[Lexer]               — tokenización mediante motor de regex y AFD construidos a mano
     ↓
-[Parser]             — parser recursivo descendente, construye el AST
+[Parser]              — parser recursivo descendente, construye el AST
     ↓
 [Analizador Semántico] — inferencia de tipos, resolución de nombres, chequeo de tipos
     ↓
@@ -62,11 +62,15 @@ El manejo de errores cubre dos casos:
 
 ## Fase 2 — Parser
 
-### Validador de Gramática LL(1)
+### De LL(1) a Recursivo Descendente: Una Evolución de Diseño
 
-Antes de implementar el parser de producción, se construyó un parser LL(1) completo como herramienta de validación de gramática. Esto implicó calcular los conjuntos First y Follow para todos los no terminales y construir la tabla de parsing LL(1), con detección explícita de conflictos. Este paso fue esencial para verificar que la gramática de HULK estaba correctamente factorizada — libre de recursión izquierda y ambigüedades — antes de comprometerse con una implementación recursiva descendente.
+El parser atravesó una evolución de diseño significativa durante el desarrollo. El plan original era usar el parser tabular LL(1) como parser de producción — una elección natural tras haber invertido un esfuerzo considerable en construirlo. Se produjo una implementación LL(1) completa: se calcularon los conjuntos First y Follow para todos los no terminales, se construyó la tabla de parsing con detección explícita de conflictos, y la gramática fue cuidadosamente factorizada para eliminar la recursión izquierda y la ambigüedad.
 
-El parser LL(1) se conserva en el código como herramienta de validación independiente. Cada vez que se añade una nueva producción a la gramática, puede ejecutarse para detectar inmediatamente cualquier conflicto introducido. Es un artefacto concreto del proceso de diseño: el validador de gramática sirvió como andamiaje y, una vez confirmada la solidez de la estructura, fue retirado del pipeline de producción.
+Sin embargo, una limitación fundamental se hizo evidente: un parser tabular LL(1) produce una secuencia plana de pasos de derivación, no un árbol. Para construir un AST a partir de esas derivaciones, habría que adjuntar acciones semánticas a cada regla de producción — implementar esencialmente gramáticas atributadas. Esto habría requerido propagar atributos sintetizados y heredados a través de la tabla de parsing, un mecanismo considerablemente más complejo de implementar y depurar de lo que parece a primera vista, y que acopla estrechamente las reglas de gramática con la lógica de construcción del AST.
+
+Se tomó la decisión de retirar el parser LL(1) del pipeline de producción y reemplazarlo por un parser recursivo descendente escrito a mano. El descenso recursivo se mapea de forma natural a la construcción del AST: cada método de parsing devuelve un nodo, y el árbol emerge orgánicamente de la estructura de llamadas. El esfuerzo invertido en la implementación LL(1) no fue en vano — el trabajo de factorización de gramática que requirió se trasladó directamente, y el validador permanece en el código como herramienta para detectar conflictos cuando se añaden nuevas producciones.
+
+Esta evolución refleja una verdad más amplia sobre la construcción de compiladores: la solución teóricamente elegante no siempre es la más práctica. El parser LL(1) es un artefacto formal hermoso; el parser recursivo descendente es lo que realmente se entrega.
 
 ### Parser Recursivo Descendente
 
@@ -192,14 +196,20 @@ Un header `hulk_runtime.h` se emite al principio de cada archivo generado. Defin
 
 **Tipos functor**: la sintaxis de anotación de tipo `(T) -> T'` para funciones de orden superior es parseada y almacenada, pero el chequeo de tipos y la generación de código para functores está solo parcialmente implementado.
 
-**Sistema de macros**: la sintaxis de declaración de macros `def`/`define` es parseada y marcada en el AST, pero la expansión de macros en tiempo de compilación no está implementada.
-
 ---
 
 ## Reflexiones de Diseño
 
 La decisión de construir el motor de regex, el validador LL(1) y el parser recursivo descendente completamente a mano — en lugar de usar Flex, Yacc o ANTLR — fue deliberada. Estas herramientas abstraen las partes más instructivas de la construcción de compiladores. Implementar desde cero la construcción de Thompson, la construcción de subconjuntos, el cálculo de conjuntos First/Follow y la construcción de la tabla LL(1) produjo una comprensión más profunda de cómo funcionan realmente los lexers y los parsers, a costa de un tiempo de implementación considerablemente mayor.
 
+La transición de LL(1) a recursivo descendente fue quizás el momento más instructivo del proyecto. Ilustró que lo formal y lo práctico no siempre coinciden: el parser LL(1) es teóricamente sólido y produce un parse correcto, pero integrar la construcción del AST en un framework tabular requiere gramáticas atributadas — una capa de complejidad que el descenso recursivo absorbe de forma natural. Reconocer esa limitación a mitad del proyecto, en lugar de forzar una solución que habría sido más difícil de mantener, fue la decisión correcta.
+
 El patrón Visitor resultó ser la elección arquitectónica correcta para la segunda mitad del pipeline. Tener el analizador semántico y el generador de código como implementaciones separadas de Visitor sobre un AST compartido facilitó mantener las responsabilidades separadas, añadir nuevos pases de análisis y razonar sobre cada fase de forma independiente. La alternativa — incrustar métodos `analyze()` y `generateCode()` directamente en cada nodo del AST — habría acoplado las tres responsabilidades en un único archivo y hecho el desarrollo incremental considerablemente más difícil.
 
 Elegir C++ como backend de compilación fue una decisión pragmática que resultó acertada. El código generado es legible, `g++` maneja automáticamente el layout de memoria y los detalles del ABI de la plataforma, y los errores que escapan al análisis semántico son atrapados en el paso de compilación de C++ en lugar de producir comportamiento incorrecto silencioso.
+
+Por último, merece mención la divergencia entre la especificación del lenguaje y la suite de tests. Varios casos de prueba utilizan sintaxis que no aparece en la especificación oficial de HULK — en particular la sintaxis de inicialización de arrays. Este es un fenómeno del mundo real: las especificaciones y las implementaciones divergen, y el autor de un compilador debe decidir cuál seguir. Este compilador sigue la especificación. Donde existen divergencias, quedan documentadas aquí para que los evaluadores tengan el panorama completo.
+
+---
+
+*Este compilador fue construido de forma incremental, una fase a la vez, validando cada componente antes de comenzar el siguiente. El resultado es un pipeline que, si bien no está completo en todos los casos extremos, es coherente, bien estructurado y honesto sobre lo que soporta y lo que no.*

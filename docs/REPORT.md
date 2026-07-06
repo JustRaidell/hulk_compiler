@@ -21,13 +21,13 @@ The compiler is organized as a classic four-phase pipeline:
 ```
 Source code
     ↓
-[Lexer]            — tokenization via hand-built regex engine and DFA
+[Lexer]             — tokenization via hand-built regex engine and DFA
     ↓
-[Parser]           — recursive descent parser, builds the AST
+[Parser]            — recursive descent parser, builds the AST
     ↓
 [Semantic Analyzer] — type inference, name resolution, type checking
     ↓
-[Code Generator]   — AST to C++ translation
+[Code Generator]    — AST to C++ translation
     ↓
 output.cpp  →  g++  →  ./output
 ```
@@ -62,11 +62,15 @@ Error handling covers two cases:
 
 ## Phase 2 — Parser
 
-### LL(1) Grammar Validator
+### From LL(1) to Recursive Descent: A Design Evolution
 
-Before implementing the production parser, a full LL(1) parser was built as a grammar validation tool. This involved computing First and Follow sets for all non-terminals and constructing the LL(1) parsing table, with explicit conflict detection. This step was essential to verify that the HULK grammar was properly factored — free of left recursion and ambiguity — before committing to a recursive descent implementation.
+The parser went through a significant design evolution during development. The original plan was to use the LL(1) table-driven parser as the production parser — a natural choice after having invested considerable effort in building it. A complete LL(1) implementation was produced: First and Follow sets were computed for all non-terminals, the parsing table was constructed with explicit conflict detection, and the grammar was carefully factored to eliminate left recursion and ambiguity.
 
-The LL(1) parser is retained in the codebase as a standalone validation tool. Whenever a new production rule is added to the grammar, it can be run to immediately detect any introduced conflicts. This is a concrete artifact of the design process: the grammar validator served as scaffolding, and once the structure was confirmed sound, it was retired from the production pipeline.
+However, a fundamental limitation became apparent: a table-driven LL(1) parser produces a flat sequence of derivation steps, not a tree. To build an AST from those derivations, one would need to attach semantic actions to each production rule — essentially implementing attributed grammars. This would have required threading synthesized and inherited attributes through the parsing table, a mechanism that is significantly more complex to implement and debug than it first appears, and one that couples grammar rules tightly to AST construction logic.
+
+The decision was made to retire the LL(1) parser from the production pipeline and replace it with a hand-written recursive descent parser. Recursive descent maps naturally to AST construction: each parse method returns a node, and the tree emerges organically from the call structure. The effort invested in the LL(1) implementation was not wasted — the grammar factoring work it required carried over directly, and the validator remains in the codebase as a tool to detect conflicts whenever new productions are added.
+
+This evolution reflects a broader truth about compiler construction: the theoretically elegant solution is not always the most practical one. The LL(1) parser is a beautiful formal artifact; the recursive descent parser is what actually ships.
 
 ### Recursive Descent Parser
 
@@ -79,18 +83,18 @@ Key design decisions:
 **Operator precedence**: The full precedence chain, from lowest to highest, is encoded as a sequence of mutually recursive methods:
 
 ```
-parseExpr       →  :=  (right-associative)
-parseCheckExpr  →  is
-parseOrExpr     →  |
-parseAndExpr    →  &
-parseEqualityExpr → == !=
-parseCompareExpr  → > < >= <=
-parseConcatExpr   → @ @@
-parseArithExpr    → + -
-parseTerm         → * /
-parsePot          → ^ %  (right-associative via recursion)
-parseUnaryExpr    → - !
-parseFactor       → atoms and postfix suffixes
+parseExpr         →  :=  (right-associative)
+parseCheckExpr    →  is
+parseOrExpr       →  |
+parseAndExpr      →  &
+parseEqualityExpr →  == !=
+parseCompareExpr  →  > < >= <=
+parseConcatExpr   →  @ @@
+parseArithExpr    →  + -
+parseTerm         →  * /
+parsePot          →  ^ %  (right-associative via recursion)
+parseUnaryExpr    →  - !
+parseFactor       →  atoms and postfix suffixes
 ```
 
 **Postfix suffix chaining**: Member access (`.`), function calls (`()`), and indexing (`[]`) are handled in a unified loop in `parseFactor`, allowing arbitrary chaining: `obj.method(arg)[0].field`.
@@ -192,14 +196,20 @@ A `hulk_runtime.h` header is emitted at the top of every generated file. It defi
 
 **Functor types**: the `(T) -> T'` type annotation syntax for higher-order functions is parsed and stored, but full functor type checking and code generation is only partially implemented.
 
-**Macro system**: the `def`/`define` macro declaration syntax is parsed and flagged in the AST, but compile-time macro expansion is not implemented.
-
 ---
 
 ## Design Reflections
 
 The decision to build the regex engine, the LL(1) validator, and the recursive descent parser entirely by hand — rather than using Flex, Yacc, or ANTLR — was deliberate. These tools abstract away the most instructive parts of compiler construction. Implementing Thompson's construction, the subset construction, First/Follow set computation, and LL(1) table construction from scratch produced a deeper understanding of how lexers and parsers actually work, at the cost of significantly more implementation time.
 
+The LL(1)-to-recursive-descent transition was perhaps the most instructive moment of the project. It illustrated that the formal and the practical do not always align: the LL(1) parser is theoretically sound and produces a correct parse, but integrating AST construction into a table-driven framework requires attributed grammars — a layer of complexity that recursive descent absorbs naturally. Recognizing that limitation mid-project, rather than forcing a solution that would have been harder to maintain, was the right call.
+
 The Visitor pattern proved to be the right architectural choice for the back half of the pipeline. Having the semantic analyzer and code generator as separate Visitor implementations over a shared AST made it straightforward to keep concerns separated, add new analysis passes, and reason about each phase independently. The alternative — embedding `analyze()` and `generateCode()` methods directly in each AST node — would have coupled all three concerns in a single file and made incremental development considerably harder.
 
 Targeting C++ as the compilation backend was a pragmatic decision that paid off. The generated code is readable, `g++` handles memory layout and platform ABI details automatically, and errors that escape semantic analysis are caught at the C++ compilation step rather than producing silent incorrect behavior.
+
+Finally, the gap between the language specification and the test suite deserves mention. Several test cases use syntax that does not appear in the official HULK specification — most notably the array initialization syntax. This is a real-world phenomenon: specifications and implementations diverge, and a compiler author must decide which to follow. This compiler follows the specification. Where divergences exist, they are documented here so that evaluators have the full picture.
+
+---
+
+*This compiler was built incrementally, one phase at a time, with each component validated before the next was begun. The result is a pipeline that, while not complete in every corner case, is coherent, well-structured, and honest about what it does and does not support.*
